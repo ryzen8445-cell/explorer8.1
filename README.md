@@ -1,37 +1,43 @@
 # Explorer8.1
 
-An experimental low-level reverse-engineering framework dedicated to backporting the native, untouched **Windows 8.1 Desktop Shell and File Explorer environment (NT 6.3)** to run seamlessly alongside modern kernels on Windows 10 and Windows 11.
+An experimental, low-level reverse-engineering framework dedicated to backporting the native, untouched **Windows 8.1 Desktop Shell and File Explorer environment (NT 6.3)** to run natively on modern Windows 10 and Windows 11 kernels.
 
-Unlike standard skinning suites or theme packages, this project isolates real legacy Microsoft user-experience subsystems inside dedicated `.local` application isolation boundaries.
+Rather than relying on visual skinning tools or UI wrappers, this project utilizes local module isolation (`.local` redirection) and custom C++ proxy hooks to safely initialize real legacy UX subsystems alongside modern security environments.
 
-## ⚠️ Current Development Status & Roadblocks
+## 🚀 Recent Breakthroughs & Milestones
 
-The project is currently tracking active debugging sessions inside isolated test environments to circumvent core kernel loader mismatches between NT 6.3 binaries and modern NT 10.0+ systems. 
+During our recent dynamic binary analysis and debugging sessions inside isolated sandboxes, we achieved a monumental milestone: **The legacy shell successfully broke through early loader checks, initialized its core subsystems, and actively mapped its primary window station interface onto the host system (evidenced by the visual rendering of the OS desktop watermark layer).**
 
-Our dynamic binary analysis inside `x64dbg` and Microsoft Sysinternals `ProcMon` has mapped out the exact sequential checkpoints causing initialization failures:
+This was accomplished by transitioning away from manual runtime debugger interventions inside `x64dbg` and moving toward an automated, compiled C++ memory hook architecture.
 
-### 1. The CFG Mitigation Block (`ntdll.dll`)
-* **Symptom:** Silent failure or instant termination during initial process thread orchestration.
-* **Mechanism:** Modern `ntdll.dll` triggers an internal Control Flow Guard (CFG) validation check via `ntdll!LdrpValidateUserCallTarget`. Because the function entry points within the native legacy `ExplorerFrame.dll` and `explorer.exe` do not correlate with modern pre-compiled CFG exception bitmap tables, the OS flags the indirect call as an exploit hazard and executes an abort sequence (`int3` trap) after calling `ZwQueryInformationThread`.
-* **Current Debugger Bypass:** Overwriting the validation loop header with an explicit `xor eax, eax` / `ret` patch fakes a successful validation status (`STATUS_SUCCESS = 0x00000000`) and passes execution control back to the loader.
+### Integrated Codebase Features
+* **Automated CFG Bypass:** The custom proxy layer dynamically scans memory space to identify `ntdll!LdrpValidateUserCallTarget`. It programmatically overrides the Control Flow Guard verification loop header with an inline binary patch (`0x31 0xC0 0xC3` / `xor eax, eax` ; `ret`), automatically reporting a flawless validation status (`STATUS_SUCCESS`) on every execution path.
+* **Initialization Loop Mitigation:** By embedding code-level interception, the framework successfully satisfies the strict environment queries of cascading dependencies (such as `umpdc.dll` and `imm32.dll`), breaking the application out of its persistent `STATUS_DLL_INIT_FAILED (0xc0000142)` roadblock.
 
-### 2. Core Infrastructure Initialization Failures (`0xc0000142`)
-Once the kernel validation trap is suppressed, the Windows Loader (`Ldr`) cascadingly executes module initialization routines (`DllMain EntryPoints`). The process currently hits a hard **`STATUS_DLL_INIT_FAILED (0xc0000142)`** abort immediately after mapping critical system dependencies:
+---
 
-* **`umpdc.dll` (User Mode Power Service Client):** Internal initialization queries fail when clashing with the host's modern power management state structures.
-* **`imm32.dll` (Input Method Manager):** Fails during layout/language framework environment setup due to heavily refactored internal structural changes inside the modern Thread Environment Block (TEB).
+## 🛑 Current Active Development Blockers
 
-Stubbing these entry points directly with a blind success signal (`mov eax, 1` / `ret`) clears the initialization loop but triggers immediate downstream null pointer dereferences (`0xC0000005`), as the shell relies on these populated tables to paint the UI thread.
+With the initial loader traps cleared and the UI engine attempting to mount, the architecture is currently tracking a deep subsystem constraint where the modern kernel environment clashes with the legacy file manager's structural interface.
 
-## 🛠️ Planned Engineering & Architecture Solutions
+### The Shell Undo Implementation Barrier (`shunimpl.dll`)
+* **Symptom:** A hard process termination throwing **`STATUS_ORDINAL_NOT_FOUND (0xc0000138)`** when executing natively or attempting to swap the active shell via `taskkill /f /im explorer.exe`.
+* **The Root Cause:** Post-NT 6.3 operating systems completely refactored or integrated the Shell Undo Implementation functionalities natively into broader storage engines (`windows.storage.dll` / `shell32.dll`), rendering `shunimpl.dll` obsolete. The legacy `explorer.exe` demands access to this specific module, querying its internal architecture entirely via **nameless, raw numeric ordinals** (specifically targeting index locations such as `#240`, `#250`, and `#290`). 
+* **The Iso-Extraction Strategy:** To conquer this missing structural layout, we successfully extracted the authentic, genuine version of `shunimpl.dll` from an official Windows 8.1 installation ISO payload to provide the necessary native ordinal table context.
 
-To resolve the `0xc0000142` loop without breaking core subsystem prerequisites, we are actively shifting away from runtime debugger manipulation toward an automated codebase approach:
+---
 
-* **C++ Custom Loader Stub:** Engineering an application bootstrapper designed to instantiate the environment process suspended, allocate the required structural parameters inside target memory, and safely initialize execution.
-* **API Set & TEB Spoofing Hooks:** Building lightweight proxy DLLs designed to sit within the `.local` directory boundary, intercepting `ntdll` queries to dynamically fake a legacy NT 6.3 context environment for incoming shell system requests.
+## 🛠️ Current Engineering Roadmap
+
+We are actively designing a robust **Twin-Module DLL Side-Loading / Proxying** pipeline to bridge the remaining ordinal gaps without triggering memory collision errors:
+
+1. **The Twin-DLL Bridge Architecture:** Maintained inside the localized folder environment as two distinct elements:
+   * `shunimpl.dll` (Our custom-compiled C++ proxy wrapper)
+   * `shunimpl_real.dll` (The genuine, untouched binary extracted from the Windows 8.1 ISO)
+2. **Dynamic Ordinal Passthrough:** Programming the C++ proxy layer to intercept the initial `DllMain` (`Ordinal 1`) thread attachment to automatically deploy our background kernel patches, while utilizing an explicit ordinal mapping router to forward all complex shell navigation and array queries directly to the authentic 8.1 engine asset.
 
 ## 🤝 Contributing & Collaboration
 
-If you have deep experience with Windows Internals, kernel-level thread structures, or writing custom compatibility wrappers and hooks, we need your eyes on this! 
+If you possess deep experience with Windows Internals, PE header export table mapping, or writing production-grade C++ proxy hook wrappers that interface directly with legacy NT architectures, we need your input! 
 
-Feel free to open an Issue or pull request with your findings. You can also join our active development discussions over on the **WinClassic Forums**.
+Feel free to open an Issue, review our current debugging logs, or submit a pull request. Active technical discussion is maintained across the repository and over on the **WinClassic Forums**.
