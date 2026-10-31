@@ -1,0 +1,4 @@
+LIBRARY "shunimpl"
+EXPORTS
+    DllMain @1
+    shunimpl_real.@{2..300} @{2..300} NONAME
