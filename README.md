@@ -1,49 +1,37 @@
-# Explorer8.1 (Windows 8.1 Shell Restoration Framework)
+# Explorer8.1
 
-An ambitious reverse-engineering project and development sandbox aimed at backporting the complete, native **Windows 8.1 Desktop Shell and User Experience (UX) environment to modern Windows 10/11 branches**. 
+An experimental low-level reverse-engineering framework dedicated to backporting the native, untouched **Windows 8.1 Desktop Shell and File Explorer environment (NT 6.3)** to run seamlessly alongside modern kernels on Windows 10 and Windows 11.
 
-Instead of relying on third-party visual skins or translation wrappers, this project framework is engineered to run original, untouched NT 6.3 user environment subsystems side-by-side with modern Windows kernels.
+Unlike standard skinning suites or theme packages, this project isolates real legacy Microsoft user-experience subsystems inside dedicated `.local` application isolation boundaries.
 
----
+## ⚠️ Current Development Status & Roadblocks
 
-## 🗺️ The Full Shell Subsystem Roadmap
+The project is currently tracking active debugging sessions inside isolated test environments to circumvent core kernel loader mismatches between NT 6.3 binaries and modern NT 10.0+ systems. 
 
-To completely restore the native Windows 8.1 look, feel, and functionality, the development pipeline targets the isolation, hooking, and redirection of these core environment blocks:
+Our dynamic binary analysis inside `x64dbg` and Microsoft Sysinternals `ProcMon` has mapped out the exact sequential checkpoints causing initialization failures:
 
-*   **File Explorer & Desktop Grid (Active Phase):** Isolation and execution of `explorer.exe` & `ExplorerFrame.dll`.
-*   **Immersive Shell & Charms Bar:** Reverse-engineering `twinui.dll` and `ImmersiveShell.dll` to restore native Windows 8.1 modern app frames, side charms, and gesture mechanics.
-*   **The Start Screen Subsystem:** Hooking and isolating `StartScreen.exe` to bring back the native NT 6.3 full-screen tile layout.
-*   **Theme & Composition Engine:** Intercepting `uxtheme.dll` and `dwmapi.dll` components to enforce authentic 8.1 borders and Aero-lite window metrics without disrupting modern display drivers.
+### 1. The CFG Mitigation Block (`ntdll.dll`)
+* **Symptom:** Silent failure or instant termination during initial process thread orchestration.
+* **Mechanism:** Modern `ntdll.dll` triggers an internal Control Flow Guard (CFG) validation check via `ntdll!LdrpValidateUserCallTarget`. Because the function entry points within the native legacy `ExplorerFrame.dll` and `explorer.exe` do not correlate with modern pre-compiled CFG exception bitmap tables, the OS flags the indirect call as an exploit hazard and executes an abort sequence (`int3` trap) after calling `ZwQueryInformationThread`.
+* **Current Debugger Bypass:** Overwriting the validation loop header with an explicit `xor eax, eax` / `ret` patch fakes a successful validation status (`STATUS_SUCCESS = 0x00000000`) and passes execution control back to the loader.
 
----
+### 2. Core Infrastructure Initialization Failures (`0xc0000142`)
+Once the kernel validation trap is suppressed, the Windows Loader (`Ldr`) cascadingly executes module initialization routines (`DllMain EntryPoints`). The process currently hits a hard **`STATUS_DLL_INIT_FAILED (0xc0000142)`** abort immediately after mapping critical system dependencies:
 
-## 🚀 Active Workspace & Milestones
+* **`umpdc.dll` (User Mode Power Service Client):** Internal initialization queries fail when clashing with the host's modern power management state structures.
+* **`imm32.dll` (Input Method Manager):** Fails during layout/language framework environment setup due to heavily refactored internal structural changes inside the modern Thread Environment Block (TEB).
 
-Currently, all active proxy wrappers, hook points, and detour logic are organized inside the **[`src/`](./src)** directory.
+Stubbing these entry points directly with a blind success signal (`mov eax, 1` / `ret`) clears the initialization loop but triggers immediate downstream null pointer dereferences (`0xC0000005`), as the shell relies on these populated tables to paint the UI thread.
 
-1.  **Binary Isolation:** Extracted untouched x64 Windows 8.1 core files (`explorer.exe`, `ExplorerFrame.dll`, and corresponding `.mui` language strings).
-2.  **DLL Search Path Redirection:** Implemented the DotLocal (`explorer.exe.local`) API-MS isolation trick, forcing the host to prioritize local 8.1 libraries over native `C:\Windows\System32` modules.
-3.  **Kernel Behavior Mapping:** Isolated the early execution loop within a live kernel debugger (`x64dbg`) inside a Windows 10 guest environment.
+## 🛠️ Planned Engineering & Architecture Solutions
 
----
+To resolve the `0xc0000142` loop without breaking core subsystem prerequisites, we are actively shifting away from runtime debugger manipulation toward an automated codebase approach:
 
-## 🛑 The Active Blocker: `STATUS_DLL_INIT_FAILED`
+* **C++ Custom Loader Stub:** Engineering an application bootstrapper designed to instantiate the environment process suspended, allocate the required structural parameters inside target memory, and safely initialize execution.
+* **API Set & TEB Spoofing Hooks:** Building lightweight proxy DLLs designed to sit within the `.local` directory boundary, intercepting `ntdll` queries to dynamically fake a legacy NT 6.3 context environment for incoming shell system requests.
 
-When initiating execution of the local Windows 8.1 shell process under a clean sandbox (with the host Windows 10 explorer shell suspended), the application terminates immediately with exception code: **`0xc0000142 (STATUS_DLL_INIT_FAILED)`**.
+## 🤝 Contributing & Collaboration
 
-### Debugger Observations (`x64dbg` / `ntdll.dll` tracing):
-*   The binary crashes during the early initialization thread loop before drawing any UI.
-*   Dynamic analysis shows the final execution pointer (`RIP`) trapping an intentional abort sequence (`int3` breakpoint trap) inside `ntdll.dll`.
-*   This trap triggers directly after an internal system query: `call <ntdll.ZwQueryInformationThread>`.
-*   **Root Cause:** The Windows 8.1 shell relies on structures within the Thread Environment Block (TEB) mapped to the NT 6.3 memory layout. When executed on a modern Windows 10 kernel, the data returned by `ZwQueryInformationThread` causes an internal structural validation failure, triggering the protective process exit.
+If you have deep experience with Windows Internals, kernel-level thread structures, or writing custom compatibility wrappers and hooks, we need your eyes on this! 
 
-### Immediate Engineering Target:
-We have set up the initial hooking blueprint inside **[`src/hooks.cpp`](./src/hooks.cpp)**. The target is intercepting `ZwQueryInformationThread` / `NtQueryInformationThread` (specifically looking at `ThreadInformationClass 9` / `ThreadQuerySetWin32StartAddress`) to spoof/translate the thread parameters returned by the modern kernel into native NT 6.3 structures.
-
----
-
-## 🤝 Call to Action for Contributors
-
-If you are a reverse engineer, kernel tinkerer, or Windows shell enthusiast—**please fork this repository!**
-
-The project has graduated from static file hosting to an active C++ proxy framework. Take a snapshot of your Windows 10 dev VM, clone the repo, attach your debugger, and help patch the thread query loop to unlock the baseline environment for "Explorer8.1".
+Feel free to open an Issue or pull request with your findings. You can also join our active development discussions over on the **WinClassic Forums**.
